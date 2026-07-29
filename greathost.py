@@ -14,8 +14,16 @@ EMAIL = os.getenv("GREATHOST_EMAIL", "")
 PASSWORD = os.getenv("GREATHOST_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-PROXY_URL = os.getenv("PROXY_URL", "") #=====sock5代理可留空=====
-TARGET_NAME = os.getenv("TARGET_NAME", "loveMC") #=====目标服务器名=====
+PROXY_URL = None
+IS_PROXY = os.environ.get("IS_PROXY", "false").lower() == "true"
+PROXY_SERVER = os.getenv('S5_PROXY') or os.getenv('PROXY_SERVER') or "socks://127.0.0.1:1080"
+if IS_PROXY:
+    PROXY_URL = PROXY_SERVER
+    print(f"🔗 挂载代理: {PROXY_SERVER}")
+else:
+    print("🍭 未使用代理，直连访问")
+
+TARGET_NAME = os.getenv("TARGET_NAME", "nowx") #=====目标服务器名=====
 
 STATUS_MAP = {
     "running": ["🟢", "Running"],
@@ -24,6 +32,14 @@ STATUS_MAP = {
     "offline": ["⚪", "Offline"],
     "suspended": ["🚫", "Suspended"]
 }
+
+def get_current_ip(proxy_server: str = "") -> str:
+    proxies = None
+    if proxy_server:
+        proxies = {"http": proxy_server, "https": proxy_server}
+    response = requests.get("https://api.ip.sb/ip", proxies=proxies, timeout=15)
+    response.raise_for_status()
+    return response.text.strip()
 
 def now_shanghai():
     try:
@@ -149,7 +165,10 @@ class GH:
     def get_renew_info(self, sid):
         data = self.api(f"/api/renewal/contracts/{sid}")
         print(f"DEBUG: 原始合同数据 -> {str(data)[:100]}...")
-        return data.get("contract", {}).get("renewalInfo") or data.get("renewalInfo", {})
+        # 注意：data.get("contract", {}) 在 contract 键存在但值为 None 时仍会返回 None，
+        # 直接 .get 会抛 AttributeError，因此先显式兜底为空 dict。
+        contract = data.get("contract") or {}
+        return contract.get("renewalInfo") or data.get("renewalInfo") or {}
 
     def get_btn(self, sid):
         self.d.get(f"https://greathost.es/contracts/{sid}")
@@ -168,6 +187,9 @@ class GH:
         self.d.quit()
 
 def run():
+    # 启动浏览器前先校验凭据，避免空值喂给登录表单后干等 40s 超时才报错
+    if not EMAIL or not PASSWORD:
+        raise SystemExit("❌ 缺少 GREATHOST_EMAIL / GREATHOST_PASSWORD 环境变量")
     gh = GH()
     try:
         ip = gh.get_ip()
@@ -200,8 +222,10 @@ def run():
         res = gh.renew(sid)
         ok = res.get("success", False)
         msg = res.get("message", "无返回消息")
-        after = calculate_hours(res.get("details", {}).get("nextRenewalDate")) if ok else before
-        print(f"📡 续期响应结果: {ok} | Date='{res.get('details',{}).get('nextRenewalDate')}' | Message='{msg}'")
+        # details 可能为 None，先兜底再取 nextRenewalDate，避免 (None).get 抛错
+        details = res.get("details") or {}
+        after = calculate_hours(details.get("nextRenewalDate")) if ok else before
+        print(f"📡 续期响应结果: {ok} | Date='{details.get('nextRenewalDate')}' | Message='{msg}'")
 
         if ok and after > before:
             send_notice("renew_success", [

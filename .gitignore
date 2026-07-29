@@ -1,0 +1,8 @@
+# Python 字节码缓存
+__pycache__/
+*.pyc
+
+# 调试产物 / 临时文件
+.tmp/
+error_screenshot.png
+error_page.html
