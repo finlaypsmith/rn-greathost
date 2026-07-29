@@ -1,13 +1,11 @@
 # GreatHost 自动续期状态
 
-🎉 **GreatHost 续期成功**
+🚨 **GreatHost 脚本报错**
 
-📛 服务器名称: loveMC
-🆔 ID: `ea53c54f-bc21-400d-8bcf-cc302ee355bc`
-⏰ 增加时间: 82 ➔ 94h
-🚀 服务器状态: ❓ unknown
-💡 提示: Servidor gratuito renovado correctamente
-🌐 落地 IP: `48.211.210.121`
-📅 时间: 2026/07/29 22:01:08
+📛 服务器名称: nowx
+❌ 故障: `TimeoutException: Message: 
+`
+🌐 代理状态: 已尝试直连/Stealth
+📅 时间: 2026/07/30 03:09:29
 
-> 最近更新: 2026/07/29 22:01:08
+> 最近更新: 2026/07/30 03:09:30
