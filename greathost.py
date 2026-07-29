@@ -202,20 +202,35 @@ class GH:
             print(f"⚠️ 诊断信息采集失败: {type(e).__name__}: {e}")
 
     def get_btn(self, sid):
+        """读取续期按钮文案（仅用于判断是否冷却 Wait）。
+
+        根因（已用 Actions 诊断验证）：按钮 #renew-free-server-btn 可在 DOM 中存在，
+        但 .text 长期为空（JS 未填充或不可见文本），原先对非空 text 干等 40s 会 TimeoutException。
+        策略：等 presence；文案短超时 + textContent 兜底；仍空则返回 ""，由上层走 renew API。
+        """
         target = f"https://greathost.es/contracts/{sid}"
         print(f"🧭 打开合同页: {target}")
         self.d.get(target)
         try:
             btn = self.w.until(EC.presence_of_element_located((By.ID, "renew-free-server-btn")))
-            self.w.until(lambda d: btn.text.strip() != "")
         except TimeoutException:
-            # 第一阶段诊断：区分「元素不存在」vs「元素在但 text 空」vs 挑战页
-            print("⏱️ get_btn 等待超时，开始采集页面诊断…")
-            self.dump_page_diagnostics(tag="get_btn_timeout")
+            print("⏱️ get_btn：按钮元素未出现，采集诊断后抛出")
+            self.dump_page_diagnostics(tag="get_btn_no_element")
             raise
 
-        btn_text = btn.text.strip()
-        print(f"🔘 按钮状态: '{btn_text}'")
+        def _btn_label(el):
+            # .text 只含「可见」文本；textContent 可拿到隐藏/尚未 layout 的文案
+            return (el.text or el.get_attribute("textContent") or "").strip()
+
+        try:
+            # 文案由前端异步填充，不应占用与 presence 同级的 40s
+            WebDriverWait(self.d, 10).until(lambda d: _btn_label(btn) != "")
+        except TimeoutException:
+            print("⚠️ get_btn：按钮已在 DOM 但 10s 内文案仍空，跳过冷却文案探测，交由 renew API 判断")
+            self.dump_page_diagnostics(tag="get_btn_empty_text")
+
+        btn_text = _btn_label(btn)
+        print(f"🔘 按钮状态: '{btn_text}'" + (" (空，将尝试 API 续期)" if not btn_text else ""))
         return btn_text
 
     def renew(self, sid):
