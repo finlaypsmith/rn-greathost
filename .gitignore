@@ -6,3 +6,5 @@ __pycache__/
 .tmp/
 error_screenshot.png
 error_page.html
+.env
+**/.env

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from selenium import webdriver as std_webdriver
 from seleniumwire import webdriver as wire_webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -170,11 +171,49 @@ class GH:
         contract = data.get("contract") or {}
         return contract.get("renewalInfo") or data.get("renewalInfo") or {}
 
+    def dump_page_diagnostics(self, tag="diag"):
+        """超时/异常时把页面关键信息打到日志，不依赖 artifact 也能排查。"""
+        try:
+            url = self.d.current_url
+            title = self.d.title
+            src = self.d.page_source or ""
+            body_text = ""
+            try:
+                body_text = self.d.find_element(By.TAG_NAME, "body").text or ""
+            except Exception:
+                body_text = ""
+            has_btn = "renew-free-server-btn" in src
+            cf_hit = any(k in src.lower() for k in (
+                "cf-browser-verification", "just a moment", "cloudflare",
+                "attention required", "challenge-platform",
+            ))
+            print(f"🩺 [{tag}] URL: {url}")
+            print(f"🩺 [{tag}] title: {title!r}")
+            print(f"🩺 [{tag}] has #renew-free-server-btn in source: {has_btn}")
+            print(f"🩺 [{tag}] cloudflare/challenge 迹象: {cf_hit}")
+            print(f"🩺 [{tag}] body 文本前 500 字: {body_text[:500]!r}")
+            # 源码片段：按钮附近或整体前 800 字，便于对照 DOM 是否挂载
+            idx = src.find("renew-free-server-btn")
+            if idx >= 0:
+                print(f"🩺 [{tag}] 按钮附近 HTML: {src[max(0, idx-120):idx+200]!r}")
+            else:
+                print(f"🩺 [{tag}] page_source 前 800 字: {src[:800]!r}")
+        except Exception as e:
+            print(f"⚠️ 诊断信息采集失败: {type(e).__name__}: {e}")
+
     def get_btn(self, sid):
-        self.d.get(f"https://greathost.es/contracts/{sid}")
-        btn = self.w.until(EC.presence_of_element_located((By.ID, "renew-free-server-btn")))
-        self.w.until(lambda d: btn.text.strip() != "")
-        
+        target = f"https://greathost.es/contracts/{sid}"
+        print(f"🧭 打开合同页: {target}")
+        self.d.get(target)
+        try:
+            btn = self.w.until(EC.presence_of_element_located((By.ID, "renew-free-server-btn")))
+            self.w.until(lambda d: btn.text.strip() != "")
+        except TimeoutException:
+            # 第一阶段诊断：区分「元素不存在」vs「元素在但 text 空」vs 挑战页
+            print("⏱️ get_btn 等待超时，开始采集页面诊断…")
+            self.dump_page_diagnostics(tag="get_btn_timeout")
+            raise
+
         btn_text = btn.text.strip()
         print(f"🔘 按钮状态: '{btn_text}'")
         return btn_text
@@ -259,19 +298,24 @@ def run():
         # 保存页面源码和截图用于排查是否触发了验证码或加载失败
         if 'gh' in locals():
             try:
+                # 再打一遍诊断，覆盖非 get_btn 路径的超时/异常
+                gh.dump_page_diagnostics(tag="run_except")
                 gh.d.save_screenshot("error_screenshot.png")
                 with open("error_page.html", "w", encoding="utf-8") as f:
                     f.write(gh.d.page_source)
                 print("📋 已保存错误页面源码 (error_page.html) 和截图 (error_screenshot.png)")
             except Exception as se:
                 print(f"⚠️ 保存调试信息失败: {se}")
-            
+
         error_msg = str(e).replace("<", "&lt;").replace(">", "&gt;")
         send_notice("error", [
             ("📛", "服务器名称", TARGET_NAME),
             ("❌", "故障", f"<code>{type(e).__name__}: {error_msg[:100]}</code>"),
-            ("🌐", "代理状态", "已尝试直连/Stealth") 
+            ("🌐", "代理状态", "已尝试直连/Stealth")
         ])
+        # 以非 0 退出，让 Actions 判定 failure，从而上传 debug-artifacts
+        # （此前 except 吞异常后正常退出，Upload Error Page 被 if: failure() 跳过）
+        raise SystemExit(1) from e
 
     finally:
         # 增加一个判断，防止 gh 没初始化成功导致报错

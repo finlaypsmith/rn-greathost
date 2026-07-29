@@ -61,15 +61,16 @@ jobs:
           git commit -m "docs: update renewal status [skip ci]" || exit 0
           git push
 
-      # 6. 上传调试截图 (如果脚本里有 save_screenshot 的话)
+      # 6. 上传调试截图/页面（脚本失败时写出 error_*；always 兜底防漏）
       - name: Upload Error Page
-        if: failure() # 仅在脚本报错失败时执行
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: debug-artifacts
           path: |
             error_page.html
             error_screenshot.png
+          if-no-files-found: ignore
           retention-days: 3
 
       - name: 🧹 清理旧的工作流运行记录
